@@ -62,7 +62,7 @@
                             <span class="text-muted font-normal text-[11px]">{{ $row['email'] }}</span>
                         </td>
                         {{-- COLUMNA DE BADGES DE ESTADO PERSONALIZADOS --}}
-                        <<td class="py-4 pr-4">
+                        <td class="py-4 pr-4">
                             <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wide
                                 {{ $row['status'] == 'Trabajando' ? 'bg-green-50 text-green-700 border border-green-200' : '' }}
                                 {{ $row['status'] == 'Descansando' || $row['status'] == 'En Lunch' ? 'bg-amber-50 text-amber-700 border border-amber-200' : '' }}

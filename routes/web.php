@@ -6,7 +6,6 @@ use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\TimeTrackingController;
 
-
 // ---------------------------------------------------------
 // RUTAS PÚBLICAS (Invitados)
 // ---------------------------------------------------------
@@ -24,7 +23,6 @@ Route::get('/login', function () {
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
-
 // ---------------------------------------------------------
 // RUTAS PROTEGIDAS (Requieren estar logueado)
 // ---------------------------------------------------------
@@ -40,7 +38,6 @@ Route::middleware(['auth'])->group(function () {
         // ---------------------------------------------------------
         // ZONA GENERAL (Todos los empleados usan su propio reloj)
         // ---------------------------------------------------------
-        // Vista principal del reloj del empleado
         Route::get('/dashboard', [EmployeeController::class, 'index'])->name('employee.dashboard');
 
         // Control de Tiempos interactivos del reloj
@@ -64,18 +61,14 @@ Route::middleware(['auth'])->group(function () {
             Route::get('/admin/employee/{id}', [AdminController::class, 'viewEmployeeDetails'])->name('admin.employeeDetails');
             Route::post('/admin/activity/update', [AdminController::class, 'updateActivity'])->name('admin.updateActivity');
 
-            // Reportes consolidados
-            Route::get('/admin/export', [AdminController::class, 'exportExcel'])->name('admin.exportExcel');
-
             // Edición de Perfil y Horarios de Empleados
             Route::get('/admin/employee/{id}/edit', [AdminController::class, 'editEmployee'])->name('admin.editEmployee');
             Route::put('/admin/employee/{id}/update', [AdminController::class, 'updateEmployee'])->name('admin.updateEmployee');
 
-
-            // Centro de Reportes y Exportación
+            // Centro de Reportes y Exportación Dedicado
             Route::get('/admin/export', [AdminController::class, 'showExportForm'])->name('admin.export.form');
             Route::post('/admin/export/download', [AdminController::class, 'downloadExcel'])->name('admin.export.download');
-            });
+        });
 
     });
 });

@@ -22,12 +22,26 @@ class EmployeeController extends Controller
                             ->where('day_of_week', $dayOfWeek)
                             ->first();
 
-        $currentShift = Shift::where('user_id', $user->id)
-                             ->where('date', $todayDate)
-                             ->first();
+        // 1. REGLA NOCTURNA: Primero buscamos si tiene un turno ABIERTO de cualquier día.
+        $openShift = Shift::where('user_id', $user->id)
+                          ->whereNull('logoff_time')
+                          ->latest()
+                          ->first();
 
-        // Nueva validación: ¿El turno ya se terminó?
-        $shiftFinished = $currentShift && $currentShift->logoff_time !== null;
+        if ($openShift) {
+            // Si hay turno abierto, ese es su turno actual y no ha terminado.
+            $currentShift = $openShift;
+            $shiftFinished = false;
+        } else {
+            // 2. REGLA DE DÍA: Si no hay turno abierto, buscamos si ya cerró uno HOY.
+            $currentShift = Shift::where('user_id', $user->id)
+                                 ->where('date', $todayDate)
+                                 ->latest()
+                                 ->first();
+
+            // Si encontró uno hoy y no está abierto, significa que ya lo terminó.
+            $shiftFinished = $currentShift ? true : false;
+        }
 
         $settings = Setting::firstOrCreate(['id' => 1]);
 
@@ -63,7 +77,7 @@ class EmployeeController extends Controller
             'breaksCount',
             'hasTakenLunch',
             'totalWorkedFormatted',
-            'shiftFinished' 
+            'shiftFinished'
         ));
     }
 }

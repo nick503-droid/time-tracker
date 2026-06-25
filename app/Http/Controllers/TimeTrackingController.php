@@ -6,24 +6,22 @@ use Illuminate\Http\Request;
 use App\Models\Shift;
 use App\Models\ShiftActivity;
 use Illuminate\Support\Facades\Auth;
-use Carbon\Carbon; // Librería de Laravel para manejar fechas y horas súper fácil
+use Carbon\Carbon;
 
 class TimeTrackingController extends Controller
 {
-    /**
-     * Inicia el turno del día (El primer "Ponerse Ready")
-     */
     public function clockIn()
     {
         $user = Auth::user();
-        $now = now(); // Obtiene fecha y hora actual
+        $now = now();
 
-        // 1. Buscamos si el empleado ya tiene un turno creado hoy (para no duplicar)
+        // REGLA NOCTURNA: Buscamos si el usuario tiene un turno ABIERTO, sin importar de qué día sea.
         $shift = Shift::where('user_id', $user->id)
-                      ->whereDate('date', $now->toDateString())
+                      ->whereNull('logoff_time')
+                      ->latest()
                       ->first();
 
-        // 2. Si no tiene turno hoy, se lo creamos
+        // Si no tiene ningún turno abierto, le creamos uno nuevo con la fecha de hoy.
         if (!$shift) {
             $shift = Shift::create([
                 'user_id' => $user->id,
@@ -32,12 +30,10 @@ class TimeTrackingController extends Controller
             ]);
         }
 
-        // 3. Verificamos que no tenga una actividad activa (un botón ya presionado)
         $currentActivity = ShiftActivity::where('shift_id', $shift->id)
                                         ->whereNull('ended_at')
                                         ->first();
 
-        // 4. Si no hay nada activo, lo ponemos en "ready"
         if (!$currentActivity) {
             ShiftActivity::create([
                 'shift_id' => $shift->id,
@@ -49,12 +45,8 @@ class TimeTrackingController extends Controller
         return back()->with('status', '¡Turno iniciado! Estás Ready.');
     }
 
-    /**
-     * Cambia el estado del empleado (Ej: Pasa de Ready a Break_1)
-     */
     public function changeStatus(Request $request)
     {
-        // Validamos que los botones que presionen sean solo los permitidos
         $request->validate([
             'status' => 'required|in:ready,break,lunch,other'
         ]);
@@ -62,75 +54,84 @@ class TimeTrackingController extends Controller
         $user = Auth::user();
         $now = now();
 
-        // 1. Buscar el turno de hoy
+        // REGLA NOCTURNA: Buscamos el turno ABIERTO, en lugar del turno "de hoy"
         $shift = Shift::where('user_id', $user->id)
-                      ->whereDate('date', $now->toDateString())
+                      ->whereNull('logoff_time')
+                      ->latest()
                       ->first();
 
         if (!$shift) {
-            return back()->withErrors('No has iniciado tu turno hoy.');
+            return back()->withErrors('No tienes un turno activo en este momento.');
         }
 
-        // 2. Buscar la actividad actual (la que aún no tiene hora de fin)
+        // --- VALIDACIONES DE BACKEND PARA LÍMITES DE TIEMPOS ---
+        if ($request->status === 'break') {
+            $breaksCount = ShiftActivity::where('shift_id', $shift->id)
+                                        ->where('activity_type', 'break')
+                                        ->count();
+            if ($breaksCount >= $user->max_breaks_per_day) {
+                return back()->withErrors('Acceso Denegado: Has alcanzado el límite máximo de breaks permitidos por hoy.');
+            }
+        }
+
+        if ($request->status === 'lunch') {
+            $hasLunch = ShiftActivity::where('shift_id', $shift->id)
+                                       ->where('activity_type', 'lunch')
+                                       ->exists();
+            if ($hasLunch) {
+                return back()->withErrors('Acceso Denegado: Ya registraste tu tiempo de almuerzo obligatorio para este turno.');
+            }
+        }
+
+        // Cerramos la actividad previa calculando su duración
         $currentActivity = ShiftActivity::where('shift_id', $shift->id)
                                         ->whereNull('ended_at')
                                         ->first();
 
-        // 3. ¡LA MAGIA DE LOS TIEMPOS! Si hay una actividad abierta, la cerramos y calculamos cuánto duró
         if ($currentActivity) {
             $currentActivity->ended_at = $now;
-
-            // diffInSeconds calcula la diferencia en segundos desde que inició hasta ahorita
             $currentActivity->duration_seconds = Carbon::parse($currentActivity->started_at)->diffInSeconds($now);
             $currentActivity->save();
         }
 
-        // 4. Abrimos la nueva actividad que el usuario seleccionó
+        // Creamos la nueva marca solicitada
         ShiftActivity::create([
             'shift_id' => $shift->id,
-            'activity_type' => $request->status, // Aquí entra el 'break_1', 'lunch', etc.
+            'activity_type' => $request->status,
             'started_at' => $now,
         ]);
 
         return back()->with('status', 'Estado actualizado a: ' . $request->status);
     }
 
-    /**
-     * Termina el turno del día (Log Off)
-     */
     public function clockOut()
     {
         $user = Auth::user();
         $now = now();
 
-        // 1. Buscar el turno de hoy que siga abierto
+        // REGLA NOCTURNA: Buscamos el turno que sigue abierto
         $shift = Shift::where('user_id', $user->id)
-                      ->whereDate('date', $now->toDateString())
                       ->whereNull('logoff_time')
+                      ->latest()
                       ->first();
 
         if (!$shift) {
             return back()->withErrors('No tienes un turno activo para finalizar.');
         }
 
-        // 2. Buscar si quedó alguna actividad a medias (ej. le dio Log Off estando en Ready)
         $currentActivity = ShiftActivity::where('shift_id', $shift->id)
                                         ->whereNull('ended_at')
                                         ->first();
 
-        // Cerramos esa actividad y calculamos sus últimos segundos
         if ($currentActivity) {
             $currentActivity->ended_at = $now;
             $currentActivity->duration_seconds = Carbon::parse($currentActivity->started_at)->diffInSeconds($now);
             $currentActivity->save();
         }
 
-        // 3. Cerramos el turno general
         $shift->logoff_time = $now;
         $shift->save();
 
-        // Opcional: Podrías desloguear al usuario aquí si lo deseas,
-        // pero por ahora solo lo mandamos al dashboard con su mensaje de éxito.
         return back()->with('status', '¡Turno finalizado! Buen descanso.');
     }
 }

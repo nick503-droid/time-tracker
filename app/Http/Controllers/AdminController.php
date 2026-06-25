@@ -20,89 +20,70 @@ class AdminController extends Controller
 
     public function dashboard(Request $request)
     {
-        // Rango de fechas seleccionado (por defecto hoy)
         $startDate = $request->get('start_date', now()->toDateString());
         $endDate = $request->get('end_date', now()->toDateString());
 
-        // Traemos a todos los usuarios
         $employees = User::whereIn('role', ['employee', 'admin'])->get();
         $reportData = [];
 
         foreach ($employees as $employee) {
 
-            // 1. BUSCAMOS LOS TURNOS EN EL RANGO DE FECHAS
-            $shifts = Shift::where('user_id', $employee->id)
+            // SOLUCIÓN N+1: Traemos los turnos con todas sus actividades precargadas en una sola consulta
+            $shifts = Shift::with('activities')
+                           ->where('user_id', $employee->id)
                            ->whereBetween('date', [$startDate, $endDate])
                            ->get();
 
-            // Si el empleado no tiene turnos en estas fechas, lo saltamos por completo
             if ($shifts->isEmpty()) {
                 continue;
             }
 
-            // 2. DETERMINAR ESTADO EN VIVO (Solo tiene sentido si el filtro incluye HOY)
             $isTodayIncluded = ($startDate <= now()->toDateString() && $endDate >= now()->toDateString());
-            $currentStatus = 'Histórico'; // Por defecto para reportes del pasado
+            $currentStatus = 'Histórico';
 
-            if ($isTodayIncluded) {
-                $todayShift = Shift::where('user_id', $employee->id)
-                                    ->where('date', now()->toDateString())
-                                    ->first();
-                if ($todayShift) {
-                    if ($todayShift->logoff_time) {
+            $totalWorkSeconds = 0;
+            $totalBreakSeconds = 0;
+
+            foreach ($shifts as $shift) {
+                // Sumamos los tiempos iterando sobre la colección ya cargada en PHP
+                foreach ($shift->activities as $act) {
+                    if ($act->duration_seconds) {
+                        if ($act->activity_type === 'ready') {
+                            $totalWorkSeconds += $act->duration_seconds;
+                        } elseif (in_array($act->activity_type, ['break', 'lunch'])) {
+                            $totalBreakSeconds += $act->duration_seconds;
+                        }
+                    }
+                }
+
+                // Determinamos el estado en vivo si corresponde a la fecha de hoy
+                if ($shift->date == now()->toDateString()) {
+                    if ($shift->logoff_time) {
                         $currentStatus = 'Turno Terminado';
                     } else {
-                        $activeActivity = ShiftActivity::where('shift_id', $todayShift->id)
-                                                      ->whereNull('ended_at')
-                                                      ->first();
+                        // Buscamos la actividad en curso directo en memoria
+                        $activeActivity = $shift->activities->whereNull('ended_at')->first();
+
                         if ($activeActivity) {
-                            if ($activeActivity->activity_type == 'ready') {
+                            $liveSeconds = Carbon::parse($activeActivity->started_at)->diffInSeconds(now());
+
+                            if ($activeActivity->activity_type === 'ready') {
+                                $totalWorkSeconds += $liveSeconds;
                                 $currentStatus = 'Trabajando';
-                            } elseif ($activeActivity->activity_type == 'break') {
+                            } elseif ($activeActivity->activity_type === 'break') {
+                                $totalBreakSeconds += $liveSeconds;
                                 $currentStatus = 'Descansando';
-                            } elseif ($activeActivity->activity_type == 'lunch') {
+                            } elseif ($activeActivity->activity_type === 'lunch') {
+                                $totalBreakSeconds += $liveSeconds;
                                 $currentStatus = 'En Lunch';
                             }
                         } else {
                             $currentStatus = 'Iniciado';
                         }
                     }
-                } else {
-                    $currentStatus = 'Desconectado';
                 }
             }
 
-            // 3. CALCULAR TIEMPOS ACUMULADOS
-            $totalWorkSeconds = 0;
-            $totalBreakSeconds = 0;
-
-            foreach ($shifts as $shift) {
-                $totalWorkSeconds += ShiftActivity::where('shift_id', $shift->id)
-                                                  ->where('activity_type', 'ready')
-                                                  ->sum('duration_seconds');
-
-                $totalBreakSeconds += ShiftActivity::where('shift_id', $shift->id)
-                                                   ->whereIn('activity_type', ['break', 'lunch'])
-                                                   ->sum('duration_seconds');
-
-                // Sumar el tiempo "en vivo" si el turno de hoy sigue corriendo
-                if ($shift->date == now()->toDateString() && !$shift->logoff_time) {
-                    $activeActivity = ShiftActivity::where('shift_id', $shift->id)
-                                                  ->whereNull('ended_at')
-                                                  ->first();
-                    if ($activeActivity) {
-                        $liveSeconds = \Carbon\Carbon::parse($activeActivity->started_at)->diffInSeconds(now());
-
-                        if ($activeActivity->activity_type == 'ready') {
-                            $totalWorkSeconds += $liveSeconds;
-                        } else {
-                            $totalBreakSeconds += $liveSeconds;
-                        }
-                    }
-                }
-            }
-
-            // Agregamos a la lista solo a los que pasaron el filtro
             $reportData[] = [
                 'id' => $employee->id,
                 'employee' => $employee->name,
@@ -150,7 +131,6 @@ class AdminController extends Controller
     {
         $employee = User::findOrFail($id);
 
-        // Traemos los turnos del empleado con sus actividades ordenadas
         $shifts = Shift::where('user_id', $employee->id)
                        ->orderBy('date', 'desc')
                        ->get();
@@ -160,7 +140,6 @@ class AdminController extends Controller
                                               ->orderBy('started_at', 'asc')
                                               ->get();
 
-            // Calcular duración al vuelo si está en progreso
             foreach ($shift->activities as $act) {
                 if (!$act->ended_at) {
                     $act->duration_seconds = Carbon::parse($act->started_at)->diffInSeconds(now());
@@ -183,26 +162,22 @@ class AdminController extends Controller
         $activity = ShiftActivity::findOrFail($request->activity_id);
         $shift = Shift::findOrFail($activity->shift_id);
 
-        // Guardamos los valores viejos para la auditoría antes de cambiarlos
         $oldValue = [
             'started_at' => $activity->started_at,
             'ended_at' => $activity->ended_at,
             'duration_seconds' => $activity->duration_seconds,
         ];
 
-        // Calculamos la nueva duración en segundos basándonos en las nuevas horas
         $start = Carbon::parse($request->started_at);
         $end = Carbon::parse($request->ended_at);
         $newDurationSeconds = $start->diffInSeconds($end);
 
-        // Actualizamos la actividad
         $activity->update([
             'started_at' => $request->started_at,
             'ended_at' => $request->ended_at,
             'duration_seconds' => $newDurationSeconds,
         ]);
 
-        // Registramos el movimiento en la tabla de auditoría
         AuditLog::create([
             'admin_id' => Auth::id(),
             'affected_user_id' => $shift->user_id,
@@ -291,39 +266,60 @@ class AdminController extends Controller
         $callback = function() use($shifts) {
             $file = fopen('php://output', 'w');
 
-            // 1. BOM para que Excel lea las tildes (á, é, í, ñ)
+            // BOM para Excel y forzar el separador de comas
             fputs($file, "\xEF\xBB\xBF");
-
-            // 2. TRUCO MAESTRO: Le decimos a Excel explícitamente que el separador es la coma
             fputs($file, "sep=,\n");
 
-            // 3. Encabezados (Ya sin el ';' al final, usando la coma por defecto)
-            fputcsv($file, ['Fecha', 'Empleado', 'Email', 'Rol', 'Hora Login', 'Hora Logoff', 'Trabajo Efectivo', 'Tiempo Breaks']);
+            // Encabezados con ambos formatos (Reloj y Decimal)
+            fputcsv($file, [
+                'Fecha',
+                'Empleado',
+                'Email',
+                'Rol',
+                'Hora Login',
+                'Hora Logoff',
+                'Trabajo Efectivo (HH:MM:SS)',
+                'Trabajo Efectivo (Decimal)',
+                'Tiempo Breaks (HH:MM:SS)',
+                'Tiempo Breaks (Decimal)'
+            ]);
 
             foreach ($shifts as $shift) {
-                $totalWork = 0;
-                $totalBreak = 0;
+                $totalWorkSeconds = 0;
+                $totalBreakSeconds = 0;
 
                 foreach ($shift->activities as $act) {
                     if ($act->duration_seconds) {
                         if ($act->activity_type == 'ready') {
-                            $totalWork += $act->duration_seconds;
+                            $totalWorkSeconds += $act->duration_seconds;
                         } elseif (in_array($act->activity_type, ['break', 'lunch'])) {
-                            $totalBreak += $act->duration_seconds;
+                            $totalBreakSeconds += $act->duration_seconds;
                         }
                     }
                 }
 
-                // 4. Filas de datos (También sin el ';')
+                // Cálculos duales: Formato Reloj y Formato Decimal (4 decimales de precisión)
+                $relojWork = gmdate('H:i:s', $totalWorkSeconds);
+                $decimalWork = round($totalWorkSeconds / 3600, 4);
+
+                $relojBreak = gmdate('H:i:s', $totalBreakSeconds);
+                $decimalBreak = round($totalBreakSeconds / 3600, 4);
+
+                // Limpieza visual para las fechas de inicio y fin
+                $loginClean = $shift->login_time ? \Carbon\Carbon::parse($shift->login_time)->format('H:i:s') : 'N/A';
+                $logoffClean = $shift->logoff_time ? \Carbon\Carbon::parse($shift->logoff_time)->format('H:i:s') : 'Sin cerrar';
+
                 fputcsv($file, [
                     $shift->date,
                     $shift->user->name,
                     $shift->user->email,
                     strtoupper($shift->user->role),
-                    $shift->login_time,
-                    $shift->logoff_time ?? 'Sin cerrar',
-                    gmdate('H:i:s', $totalWork),
-                    gmdate('H:i:s', $totalBreak)
+                    $loginClean,
+                    $logoffClean,
+                    $relojWork,
+                    $decimalWork,
+                    $relojBreak,
+                    $decimalBreak
                 ]);
             }
 
