@@ -57,7 +57,7 @@ class AdminController extends Controller
                 }
 
                 // Determinamos el estado en vivo si corresponde a la fecha de hoy
-                if ($shift->date == now()->toDateString()) {
+                if ($shift->date == now()->toDateString() || is_null($shift->logoff_time)) {
                     if ($shift->logoff_time) {
                         $currentStatus = 'Turno Terminado';
                     } else {
@@ -131,15 +131,15 @@ class AdminController extends Controller
     {
         $employee = User::findOrFail($id);
 
-        $shifts = Shift::where('user_id', $employee->id)
+        $shifts = Shift::with(['activities' => function($query) {
+                           $query->orderBy('started_at', 'asc');
+                       }])
+                       ->where('user_id', $employee->id)
                        ->orderBy('date', 'desc')
                        ->get();
 
+        // Now we just loop through the data already loaded in memory to calculate live durations
         foreach ($shifts as $shift) {
-            $shift->activities = ShiftActivity::where('shift_id', $shift->id)
-                                              ->orderBy('started_at', 'asc')
-                                              ->get();
-
             foreach ($shift->activities as $act) {
                 if (!$act->ended_at) {
                     $act->duration_seconds = Carbon::parse($act->started_at)->diffInSeconds(now());
@@ -155,8 +155,12 @@ class AdminController extends Controller
         $request->validate([
             'activity_id' => 'required|exists:shift_activities,id',
             'started_at' => 'required|date_format:Y-m-d H:i:s',
-            'ended_at' => 'required|date_format:Y-m-d H:i:s',
+            // VULNERABILITY FIX: Ensure ended_at is strictly after started_at
+            'ended_at' => 'required|date_format:Y-m-d H:i:s|after:started_at',
             'reason' => 'required|string|min:10',
+        ], [
+            // Optional: Custom error message so the admin knows exactly what they did wrong
+            'ended_at.after' => 'La fecha y hora de fin debe ser posterior a la de inicio.'
         ]);
 
         $activity = ShiftActivity::findOrFail($request->activity_id);
@@ -243,17 +247,10 @@ class AdminController extends Controller
             'employee_id' => 'required'
         ]);
 
-        $query = Shift::with(['user', 'activities'])
-                      ->whereBetween('date', [$request->start_date, $request->end_date]);
+        $startDate = $request->start_date;
+        $endDate = $request->end_date;
 
-        // Si seleccionó un empleado en específico
-        if ($request->employee_id !== 'all') {
-            $query->where('user_id', $request->employee_id);
-        }
-
-        $shifts = $query->orderBy('date', 'asc')->get();
-
-        $fileName = "reporte_nomina_" . $request->start_date . "_al_" . $request->end_date . ".csv";
+        $fileName = "reporte_nomina_agrupado_" . $startDate . "_al_" . $endDate . ".csv";
 
         $headers = array(
             "Content-type"        => "text/csv",
@@ -263,59 +260,93 @@ class AdminController extends Controller
             "Expires"             => "0"
         );
 
-        $callback = function() use($shifts) {
-            $file = fopen('php://output', 'w');
+        // 1. Consultamos Turnos (que sabemos que funciona) y usamos chunk para RAM
+        $query = Shift::with(['user', 'activities'])
+                      ->whereBetween('date', [$startDate, $endDate]);
 
-            // BOM para Excel y forzar el separador de comas
-            fputs($file, "\xEF\xBB\xBF");
-            fputs($file, "sep=,\n");
+        if ($request->employee_id !== 'all') {
+            $query->where('user_id', $request->employee_id);
+        }
 
-            // Encabezados con ambos formatos (Reloj y Decimal)
-            fputcsv($file, [
-                'Fecha',
-                'Empleado',
-                'Email',
-                'Rol',
-                'Hora Login',
-                'Hora Logoff',
-                'Trabajo Efectivo (HH:MM:SS)',
-                'Trabajo Efectivo (Decimal)',
-                'Tiempo Breaks (HH:MM:SS)',
-                'Tiempo Breaks (Decimal)'
-            ]);
+        $groupedData = [];
 
+        // 2. Procesamos en bloques de 200 para evitar agotar memoria
+        $query->chunk(200, function ($shifts) use (&$groupedData) {
             foreach ($shifts as $shift) {
-                $totalWorkSeconds = 0;
-                $totalBreakSeconds = 0;
+                // Seguridad: Si un turno quedó huérfano de usuario, lo saltamos
+                if (!$shift->user) continue;
 
+                $userId = $shift->user_id;
+
+                // Inicializamos la fila del empleado si no existe
+                if (!isset($groupedData[$userId])) {
+                    $groupedData[$userId] = [
+                        'name' => $shift->user->name,
+                        'email' => $shift->user->email,
+                        'role' => $shift->user->role,
+                        'days_worked' => 0,
+                        'total_work_seconds' => 0,
+                        'total_break_seconds' => 0,
+                    ];
+                }
+
+                $groupedData[$userId]['days_worked'] += 1;
+
+                // Sumamos las actividades
                 foreach ($shift->activities as $act) {
                     if ($act->duration_seconds) {
-                        if ($act->activity_type == 'ready') {
-                            $totalWorkSeconds += $act->duration_seconds;
+                        if ($act->activity_type === 'ready') {
+                            $groupedData[$userId]['total_work_seconds'] += $act->duration_seconds;
                         } elseif (in_array($act->activity_type, ['break', 'lunch'])) {
-                            $totalBreakSeconds += $act->duration_seconds;
+                            $groupedData[$userId]['total_break_seconds'] += $act->duration_seconds;
                         }
                     }
                 }
+            }
+        });
 
-                // Cálculos duales: Formato Reloj y Formato Decimal (4 decimales de precisión)
-                $relojWork = gmdate('H:i:s', $totalWorkSeconds);
-                $decimalWork = round($totalWorkSeconds / 3600, 4);
+        // 3. Escribimos el CSV a partir de la data agrupada
+        $callback = function() use($groupedData) {
+            $file = fopen('php://output', 'w');
 
-                $relojBreak = gmdate('H:i:s', $totalBreakSeconds);
-                $decimalBreak = round($totalBreakSeconds / 3600, 4);
+            fputs($file, "\xEF\xBB\xBF");
+            fputs($file, "sep=,\n");
 
-                // Limpieza visual para las fechas de inicio y fin
-                $loginClean = $shift->login_time ? \Carbon\Carbon::parse($shift->login_time)->format('H:i:s') : 'N/A';
-                $logoffClean = $shift->logoff_time ? \Carbon\Carbon::parse($shift->logoff_time)->format('H:i:s') : 'Sin cerrar';
+            fputcsv($file, [
+                'Empleado',
+                'Email',
+                'Rol',
+                'Días Trabajados en el Rango',
+                'Total Trabajo Efectivo (HH:MM:SS)',
+                'Total Trabajo Efectivo (Decimal)',
+                'Total Tiempo Breaks (HH:MM:SS)',
+                'Total Tiempo Breaks (Decimal)'
+            ]);
+
+            foreach ($groupedData as $data) {
+                // Cálculo de formato HH:MM:SS para Trabajo
+                $workSeconds = $data['total_work_seconds'];
+                $workHours = floor($workSeconds / 3600);
+                $workMins = floor(($workSeconds / 60) % 60);
+                $workSecs = $workSeconds % 60;
+                $relojWork = sprintf('%02d:%02d:%02d', $workHours, $workMins, $workSecs);
+
+                // Cálculo de formato HH:MM:SS para Breaks
+                $breakSeconds = $data['total_break_seconds'];
+                $breakHours = floor($breakSeconds / 3600);
+                $breakMins = floor(($breakSeconds / 60) % 60);
+                $breakSecs = $breakSeconds % 60;
+                $relojBreak = sprintf('%02d:%02d:%02d', $breakHours, $breakMins, $breakSecs);
+
+                // Cálculo Decimal
+                $decimalWork = round($workSeconds / 3600, 4);
+                $decimalBreak = round($breakSeconds / 3600, 4);
 
                 fputcsv($file, [
-                    $shift->date,
-                    $shift->user->name,
-                    $shift->user->email,
-                    strtoupper($shift->user->role),
-                    $loginClean,
-                    $logoffClean,
+                    $data['name'],
+                    $data['email'],
+                    strtoupper($data['role']),
+                    $data['days_worked'],
                     $relojWork,
                     $decimalWork,
                     $relojBreak,
