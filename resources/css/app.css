@@ -1,11 +1,25 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
-@source '../**/*.js';
+/* 
+  Definimos dónde Tailwind debe buscar clases de Blade 
+  (esto reemplaza el array 'content' del viejo tailwind.config.js)
+*/
+@source "../**/*.blade.php";
+@source "../**/*.js";
+@source "../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php";
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+  /* Añadimos nuestra fuente personalizada */
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  
+  /* 
+    IMPORTANTE: Noté que usas colores y fondos personalizados en tu HTML 
+    que no existen en Tailwind base. Debes definirlos aquí.
+  */
+  --color-brand: #3b82f6; /* Cambia al código hexadecimal de tu color "brand" */
+  --color-brand-hov: #2563eb; 
+  --color-subtle: #e5e7eb;
+  --color-muted: #6b7280;
+  --color-bg-card: #ffffff;
+  --color-bg-page: #f9fafb;
 }
