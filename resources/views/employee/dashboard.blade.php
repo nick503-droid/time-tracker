@@ -1,18 +1,19 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="w-full max-w-3xl">
+<div style="width:100%;max-width:768px;">
 
     {{-- Header --}}
-    <div class="flex justify-between items-center mb-8">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;">
         <div>
-            <h1 class="text-xl font-semibold text-gray-800">Hola, <span class="text-brand">{{ Auth::user()->name }}</span></h1>
-            <p class="text-sm text-muted mt-0.5">Panel de control de tiempos</p>
+            <h1 style="font-size:20px;font-weight:600;color:#1f2937;">
+                Hola, <span style="color:var(--color-brand);">{{ Auth::user()->name }}</span>
+            </h1>
+            <p style="font-size:14px;color:var(--color-muted);margin-top:2px;">Panel de control de tiempos</p>
         </div>
-        <div class="flex gap-4 items-center">
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
             @if(Auth::user()->role === 'admin')
-                <a href="{{ route('admin.dashboard') }}"
-                   class="text-sm text-brand border border-brand/40 bg-brand/5 hover:bg-brand/10 px-4 py-2 rounded-lg transition-colors font-medium">
+                <a href="{{ route('admin.dashboard') }}" class="btn btn-brand-outline" style="font-size:14px;">
                     Panel admin
                 </a>
             @endif
@@ -21,8 +22,7 @@
             @if($currentShift && !$shiftFinished)
                 <form method="POST" action="{{ route('time.clockOut') }}" onsubmit="return confirm('¿Seguro que deseas terminar tu día?');">
                     @csrf
-                    <button type="submit"
-                        class="text-sm text-danger border border-dangerBrd bg-dangerBg hover:bg-red-100 px-4 py-2 rounded-lg transition-colors font-medium">
+                    <button type="submit" class="btn btn-danger" style="font-size:14px;">
                         Terminar turno
                     </button>
                 </form>
@@ -31,7 +31,8 @@
             {{-- Botón de Cerrar Sesión --}}
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
-                <button type="submit" class="text-sm text-muted hover:text-gray-700 transition-colors underline decoration-transparent hover:decoration-gray-300">
+                <button type="submit" style="background:none;border:none;font-size:14px;color:var(--color-muted);cursor:pointer;text-decoration:underline;text-underline-offset:2px;transition:color 0.15s;"
+                    onmouseover="this.style.color='#374151'" onmouseout="this.style.color='var(--color-muted)'">
                     Cerrar sesión
                 </button>
             </form>
@@ -40,148 +41,160 @@
 
     {{-- Flash --}}
     @if (session('status'))
-        <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm mb-6">
+        <div class="alert alert-success">
             {{ session('status') }}
         </div>
     @endif
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;" class="emp-dashboard-grid">
 
         {{-- Panel principal --}}
-        <div class="col-span-1 md:col-span-2 bg-bgCard rounded-2xl border border-subtle shadow-sm p-7">
+        <div class="card" style="padding:28px;">
 
             {{-- Hora actual + tiempo trabajado --}}
-            <div class="flex gap-6 justify-around mb-6 pb-6 border-b border-subtle">
-                <div class="text-center">
-                    <p class="text-xs text-muted uppercase tracking-wide mb-1.5">Hora actual</p>
-                    <div id="realTimeClock" class="text-2xl font-mono font-medium text-gray-700 tracking-wide">--:--:--</div>
+            <div style="display:flex;gap:24px;justify-content:space-around;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--color-subtle);">
+                <div style="text-align:center;">
+                    <p style="font-size:11px;color:var(--color-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Hora actual</p>
+                    <div id="realTimeClock" style="font-size:24px;font-family:monospace;font-weight:500;color:#374151;letter-spacing:0.025em;">--:--:--</div>
                 </div>
                 @if($currentShift)
-                <div class="text-center border-l border-subtle pl-6">
-                    <p class="text-xs text-muted uppercase tracking-wide mb-1.5">Tiempo trabajado hoy</p>
-                    <div class="text-2xl font-mono font-medium text-brand tracking-wide">{{ $totalWorkedFormatted }}</div>
+                <div style="text-align:center;border-left:1px solid var(--color-subtle);padding-left:24px;">
+                    <p style="font-size:11px;color:var(--color-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Tiempo trabajado hoy</p>
+                    <div style="font-size:24px;font-family:monospace;font-weight:500;color:var(--color-brand);letter-spacing:0.025em;">{{ $totalWorkedFormatted }}</div>
                 </div>
                 @endif
             </div>
 
-            {{-- Lógica de Vistas (Start, Despedida, o Reloj) --}}
+            {{-- Lógica de Vistas --}}
             @if(!$currentShift)
-                <div class="text-center py-8">
-                    <p class="text-gray-500 text-sm mb-6">No has iniciado tu turno de hoy</p>
+                <div style="text-align:center;padding:32px 0;">
+                    <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">No has iniciado tu turno de hoy</p>
                     <form method="POST" action="{{ route('time.clockIn') }}">
                         @csrf
-                        <button type="submit"
-                            class="bg-brand hover:bg-brandHov text-white font-medium px-10 py-3 rounded-xl text-sm transition-colors shadow-sm">
+                        <button type="submit" class="btn btn-primary" style="padding:12px 40px;border-radius:12px;font-size:14px;">
                             Iniciar turno
                         </button>
                     </form>
                 </div>
             @elseif($shiftFinished)
-                <div class="text-center py-8">
-                    <h2 class="text-3xl font-bold text-gray-700 mb-2">¡Jornada Terminada!</h2>
-                    <p class="text-gray-500 text-sm mb-2">Tu hora de salida fue registrada a las <span class="font-medium text-gray-800">{{ \Carbon\Carbon::parse($currentShift->logoff_time)->format('h:i A') }}</span>.</p>
-                    <p class="text-gray-400 text-sm">¡Buen trabajo, nos vemos mañana!</p>
+                <div style="text-align:center;padding:32px 0;">
+                    <h2 style="font-size:30px;font-weight:700;color:#374151;margin-bottom:8px;">¡Jornada Terminada!</h2>
+                    <p style="color:#6b7280;font-size:14px;margin-bottom:8px;">
+                        Tu hora de salida fue registrada a las
+                        <span style="font-weight:500;color:#1f2937;">{{ \Carbon\Carbon::parse($currentShift->logoff_time)->format('h:i A') }}</span>.
+                    </p>
+                    <p style="color:#9ca3af;font-size:14px;">¡Buen trabajo, nos vemos mañana!</p>
                 </div>
             @else
-                <div class="text-center">
-                    <p class="text-xs text-muted uppercase tracking-wide mb-2">Estado actual</p>
+                <div style="text-align:center;">
+                    <p style="font-size:11px;color:var(--color-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Estado actual</p>
 
-                    <span class="inline-block px-4 py-1.5 rounded-full text-sm font-medium mb-5
+                    <span style="display:inline-block;padding:6px 16px;border-radius:9999px;font-size:14px;font-weight:500;margin-bottom:20px;
                         {{ $currentActivity && $currentActivity->activity_type == 'ready'
-                            ? 'bg-brand/10 text-brand'
-                            : 'bg-warnBg text-warn border border-warnBrd' }}">
+                            ? 'background:rgba(74,124,89,0.1);color:var(--color-brand);'
+                            : 'background:var(--color-warn-bg);color:var(--color-warn);border:1px solid var(--color-warn-brd);' }}">
                         {{ $currentActivity ? ucfirst(str_replace('_', ' ', $currentActivity->activity_type)) : 'Esperando...' }}
                     </span>
 
-                    <div id="timerDisplay" class="text-6xl font-mono font-medium text-gray-800 mb-2 tracking-wider transition-colors duration-300">
+                    <div id="timerDisplay" class="timer-display">
                         00:00:00
                     </div>
-                    <p class="text-xs text-muted">Tiempo transcurrido en este estado</p>
+                    <p style="font-size:12px;color:var(--color-muted);">Tiempo transcurrido en este estado</p>
                 </div>
             @endif
         </div>
 
         {{-- Columna Derecha --}}
-        <div>
+        <div style="display:flex;flex-direction:column;gap:20px;">
             {{-- Panel de acciones --}}
-            <div class="bg-bgCard rounded-2xl border border-subtle shadow-sm p-6 flex flex-col justify-center">
+            <div class="card" style="display:flex;flex-direction:column;justify-content:center;">
                 @if($currentShift && !$shiftFinished)
-                    <div class="flex justify-between items-center mb-4 pb-3 border-b border-subtle">
-                        <p class="text-sm font-medium text-gray-700">Acciones</p>
-                        <span class="text-xs text-muted">Breaks: {{ $breaksCount }}/{{ Auth::user()->max_breaks_per_day }}</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--color-subtle);">
+                        <p style="font-size:14px;font-weight:500;color:#374151;">Acciones</p>
+                        <span style="font-size:12px;color:var(--color-muted);">Breaks: {{ $breaksCount }}/{{ Auth::user()->max_breaks_per_day }}</span>
                     </div>
 
-                    <form method="POST" action="{{ route('time.changeStatus') }}" class="flex flex-col gap-3">
+                    <form method="POST" action="{{ route('time.changeStatus') }}" style="display:flex;flex-direction:column;gap:12px;">
                         @csrf
 
+                        @php
+                            $isReady = $currentActivity && $currentActivity->activity_type == 'ready';
+                            $isBreak = $currentActivity && $currentActivity->activity_type == 'break';
+                            $isLunch = $currentActivity && $currentActivity->activity_type == 'lunch';
+                            $breaksMaxed = $breaksCount >= Auth::user()->max_breaks_per_day;
+                        @endphp
+
                         <button type="submit" name="status" value="ready"
-                            @disabled($currentActivity && $currentActivity->activity_type == 'ready')
-                            class="w-full py-2.5 rounded-lg text-sm font-medium transition-all border
-                            {{ $currentActivity && $currentActivity->activity_type == 'ready'
-                                ? 'bg-brand/10 border-brand/30 text-brand opacity-60 cursor-not-allowed'
-                                : 'bg-bgPage border-subtle text-gray-700 hover:border-brand/40 hover:bg-brand/5' }}">
+                            @disabled($isReady)
+                            style="width:100%;padding:10px;border-radius:8px;font-size:14px;font-weight:500;border:1px solid;cursor:pointer;transition:all 0.15s;
+                            {{ $isReady
+                                ? 'background:rgba(74,124,89,0.1);border-color:rgba(74,124,89,0.3);color:var(--color-brand);opacity:0.6;cursor:not-allowed;'
+                                : 'background:var(--color-bg-page);border-color:var(--color-subtle);color:#374151;' }}"
+                            @if(!$isReady) onmouseover="this.style.borderColor='rgba(74,124,89,0.4)';this.style.background='rgba(74,124,89,0.05)'" onmouseout="this.style.borderColor='var(--color-subtle)';this.style.background='var(--color-bg-page)'" @endif>
                             Ponerse ready
                         </button>
 
                         <button type="submit" name="status" value="break"
-                            @disabled($breaksCount >= Auth::user()->max_breaks_per_day || ($currentActivity && $currentActivity->activity_type == 'break'))
-                            class="w-full py-2.5 rounded-lg text-sm font-medium transition-all border
-                            {{ $breaksCount >= Auth::user()->max_breaks_per_day
-                                ? 'bg-bgPage border-subtle text-gray-400 cursor-not-allowed opacity-50'
-                                : ($currentActivity && $currentActivity->activity_type == 'break'
-                                    ? 'bg-warnBg border-warnBrd text-warn opacity-60 cursor-not-allowed'
-                                    : 'bg-warnBg border-warnBrd text-warn hover:bg-amber-100') }}">
+                            @disabled($breaksMaxed || $isBreak)
+                            style="width:100%;padding:10px;border-radius:8px;font-size:14px;font-weight:500;border:1px solid;cursor:pointer;transition:all 0.15s;
+                            {{ $breaksMaxed
+                                ? 'background:var(--color-bg-page);border-color:var(--color-subtle);color:#9ca3af;cursor:not-allowed;opacity:0.5;'
+                                : ($isBreak
+                                    ? 'background:var(--color-warn-bg);border-color:var(--color-warn-brd);color:var(--color-warn);opacity:0.6;cursor:not-allowed;'
+                                    : 'background:var(--color-warn-bg);border-color:var(--color-warn-brd);color:var(--color-warn);') }}"
+                            @if(!$breaksMaxed && !$isBreak) onmouseover="this.style.background='#fde8c8'" onmouseout="this.style.background='var(--color-warn-bg)'" @endif>
                             Break ({{ Auth::user()->break_duration_minutes }}m)
                         </button>
 
                         <button type="submit" name="status" value="lunch"
-                            @disabled($hasTakenLunch || ($currentActivity && $currentActivity->activity_type == 'lunch'))
-                            class="w-full py-2.5 rounded-lg text-sm font-medium transition-all border
+                            @disabled($hasTakenLunch || $isLunch)
+                            style="width:100%;padding:10px;border-radius:8px;font-size:14px;font-weight:500;border:1px solid;cursor:pointer;transition:all 0.15s;
                             {{ $hasTakenLunch
-                                ? 'bg-bgPage border-subtle text-gray-400 cursor-not-allowed opacity-50'
-                                : ($currentActivity && $currentActivity->activity_type == 'lunch'
-                                    ? 'bg-bgPage border-subtle text-gray-700 opacity-60 cursor-not-allowed'
-                                    : 'bg-bgPage border-subtle text-gray-700 hover:border-brand/40 hover:bg-brand/5') }}">
+                                ? 'background:var(--color-bg-page);border-color:var(--color-subtle);color:#9ca3af;cursor:not-allowed;opacity:0.5;'
+                                : ($isLunch
+                                    ? 'background:var(--color-bg-page);border-color:var(--color-subtle);color:#374151;opacity:0.6;cursor:not-allowed;'
+                                    : 'background:var(--color-bg-page);border-color:var(--color-subtle);color:#374151;') }}"
+                            @if(!$hasTakenLunch && !$isLunch) onmouseover="this.style.borderColor='rgba(74,124,89,0.4)';this.style.background='rgba(74,124,89,0.05)'" onmouseout="this.style.borderColor='var(--color-subtle)';this.style.background='var(--color-bg-page)'" @endif>
                             {{ $hasTakenLunch ? 'Lunch ya tomado' : 'Lunch ('.Auth::user()->lunch_duration_minutes.'m)' }}
                         </button>
                     </form>
                 @elseif($shiftFinished)
-                    <div class="text-center text-gray-400 text-sm">
+                    <div style="text-align:center;color:#9ca3af;font-size:14px;">
                         Acciones deshabilitadas.
                     </div>
                 @else
-                    <div class="text-center text-gray-400 text-sm">
+                    <div style="text-align:center;color:#9ca3af;font-size:14px;">
                         Inicia turno para ver acciones.
                     </div>
                 @endif
             </div>
 
             {{-- Panel de Horario Asignado --}}
-            <div class="bg-bgCard rounded-2xl border border-subtle shadow-sm p-6 flex flex-col justify-center mt-5">
-                <div class="flex justify-between items-center mb-4 pb-3 border-b border-subtle">
-                    <p class="text-sm font-medium text-gray-700">Mi Horario Asignado</p>
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--color-subtle);">
+                    <p style="font-size:14px;font-weight:500;color:#374151;">Mi Horario Asignado</p>
                 </div>
 
-                <div class="space-y-3 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-muted">Entrada:</span>
-                        <span class="font-medium text-gray-800">
+                <div style="display:flex;flex-direction:column;gap:12px;font-size:14px;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--color-muted);">Entrada:</span>
+                        <span style="font-weight:500;color:#1f2937;">
                             {{ Auth::user()->scheduled_in ? \Carbon\Carbon::parse(Auth::user()->scheduled_in)->format('h:i A') : 'No asignado' }}
                         </span>
                     </div>
-                    <div class="flex justify-between">
-                        <span class="text-muted">Salida:</span>
-                        <span class="font-medium text-gray-800">
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--color-muted);">Salida:</span>
+                        <span style="font-weight:500;color:#1f2937;">
                             {{ Auth::user()->scheduled_out ? \Carbon\Carbon::parse(Auth::user()->scheduled_out)->format('h:i A') : 'No asignado' }}
                         </span>
                     </div>
-                    <div class="flex justify-between">
-                        <span class="text-muted">Break:</span>
-                        <span class="font-medium text-gray-800">{{ Auth::user()->max_breaks_per_day }} al día ({{ Auth::user()->break_duration_minutes }}m)</span>
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--color-muted);">Break:</span>
+                        <span style="font-weight:500;color:#1f2937;">{{ Auth::user()->max_breaks_per_day }} al día ({{ Auth::user()->break_duration_minutes }}m)</span>
                     </div>
-                    <div class="flex justify-between">
-                        <span class="text-muted">Lunch:</span>
-                        <span class="font-medium text-gray-800">{{ Auth::user()->lunch_duration_minutes }}m</span>
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--color-muted);">Lunch:</span>
+                        <span style="font-weight:500;color:#1f2937;">{{ Auth::user()->lunch_duration_minutes }}m</span>
                     </div>
                 </div>
             </div>
@@ -222,10 +235,18 @@
                 String(s).padStart(2,'0');
 
             if (limits[currentStatus] && elapsedSeconds > limits[currentStatus]) {
-                timerDisplay.classList.add('text-danger');
+                timerDisplay.style.color = 'var(--color-danger)';
                 timerDisplay.style.opacity = elapsedSeconds % 2 === 0 ? '0.4' : '1';
             }
         }, 1000);
     @endif
 </script>
+
+<style>
+    @media (max-width: 767px) {
+        .emp-dashboard-grid {
+            grid-template-columns: 1fr !important;
+        }
+    }
+</style>
 @endsection

@@ -8,22 +8,216 @@ use App\Models\Shift;
 use App\Models\ShiftActivity;
 use App\Models\AuditLog;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Carbon\Carbon;
 
 class AdminController extends Controller
 {
+    // =========================================================================
+    // GESTIÓN DE EMPLEADOS
+    // =========================================================================
+
+    /**
+     * Muestra el formulario de creación de un nuevo empleado.
+     */
     public function createEmployee()
     {
         return view('admin.create-employee');
     }
 
+    /**
+     * Almacena un nuevo empleado en la base de datos.
+     * - Valida todos los campos antes de guardar (atómico).
+     * - Usa DB::transaction para garantizar integridad.
+     * - Establece must_change_password = true (fuerza cambio en 1er login).
+     */
+    public function storeEmployee(Request $request)
+    {
+        $request->validate([
+            'name'                   => 'required|string|max:255',
+            'email'                  => 'required|email|unique:users,email',
+            'password'               => 'required|min:8',
+            'role'                   => 'required|in:admin,employee',
+            'scheduled_in'           => 'required',
+            'scheduled_out'          => 'required',
+            'break_duration_minutes' => 'required|integer|min:0',
+            'lunch_duration_minutes' => 'required|integer|min:0',
+            'max_breaks_per_day'     => 'required|integer|min:0',
+        ], [
+            'password.min'   => 'La contraseña temporal debe tener al menos 8 caracteres.',
+            'email.unique'   => 'Este correo electrónico ya está registrado en el sistema.',
+            'email.required' => 'El correo electrónico es obligatorio.',
+            'name.required'  => 'El nombre completo es obligatorio.',
+        ]);
+
+        DB::transaction(function () use ($request) {
+            User::create([
+                'name'                   => $request->name,
+                'email'                  => $request->email,
+                'password'               => Hash::make($request->password),
+                'role'                   => $request->role,
+                'must_change_password'   => true, // Fuerza cambio en el primer inicio de sesión
+                'scheduled_in'           => $request->scheduled_in,
+                'scheduled_out'          => $request->scheduled_out,
+                'break_duration_minutes' => $request->break_duration_minutes,
+                'lunch_duration_minutes' => $request->lunch_duration_minutes,
+                'max_breaks_per_day'     => $request->max_breaks_per_day,
+            ]);
+        });
+
+        return redirect()->route('admin.employees')
+            ->with('status', '¡Empleado registrado con éxito! Se le pedirá que cambie su contraseña en el primer inicio de sesión.');
+    }
+
+    /**
+     * Lista todos los empleados con búsqueda y paginación.
+     * Ruta dedicada a la administración de empleados (separada del monitoreo de tiempo).
+     */
+    public function listEmployees(Request $request)
+    {
+        $search = $request->get('search', '');
+
+        $employees = User::when($search, function ($query, $search) {
+                            $query->where(function ($q) use ($search) {
+                                $q->where('name', 'like', "%{$search}%")
+                                  ->orWhere('email', 'like', "%{$search}%");
+                            });
+                        })
+                        ->orderBy('name')
+                        ->paginate(15)
+                        ->withQueryString(); // Preserva el parámetro ?search= en la paginación
+
+        return view('admin.employees', compact('employees', 'search'));
+    }
+
+    /**
+     * Muestra el formulario de edición de un empleado.
+     */
+    public function editEmployee($id)
+    {
+        $employee = User::findOrFail($id);
+        return view('admin.edit-employee', compact('employee'));
+    }
+
+    /**
+     * Actualiza los datos de un empleado.
+     * - El campo de nueva contraseña es OPCIONAL. Si se deja vacío, no se modifica.
+     * - Si se asigna una nueva contraseña, se establece must_change_password = true
+     *   para que el empleado deba cambiarla en su próximo inicio de sesión.
+     */
+    public function updateEmployee(Request $request, $id)
+    {
+        $employee = User::findOrFail($id);
+
+        $request->validate([
+            'name'                   => 'required|string|max:255',
+            'email'                  => 'required|email|unique:users,email,' . $employee->id,
+            'role'                   => 'required|in:admin,employee',
+            'scheduled_in'           => 'required',
+            'scheduled_out'          => 'required',
+            'break_duration_minutes' => 'required|integer|min:0',
+            'lunch_duration_minutes' => 'required|integer|min:0',
+            'max_breaks_per_day'     => 'required|integer|min:0',
+            // Nueva contraseña es opcional; si se proporciona debe tener >= 8 caracteres
+            'new_password'           => 'nullable|string|min:8',
+        ], [
+            'new_password.min' => 'La nueva contraseña debe tener al menos 8 caracteres.',
+            'email.unique'     => 'Este correo electrónico ya está en uso por otro usuario.',
+        ]);
+
+        DB::transaction(function () use ($request, $employee) {
+            $data = [
+                'name'                   => $request->name,
+                'email'                  => $request->email,
+                'role'                   => $request->role,
+                'scheduled_in'           => $request->scheduled_in,
+                'scheduled_out'          => $request->scheduled_out,
+                'break_duration_minutes' => $request->break_duration_minutes,
+                'lunch_duration_minutes' => $request->lunch_duration_minutes,
+                'max_breaks_per_day'     => $request->max_breaks_per_day,
+            ];
+
+            // Si el admin asigna una nueva contraseña, se actualiza y se fuerza el cambio
+            if ($request->filled('new_password')) {
+                $data['password']             = Hash::make($request->new_password);
+                $data['must_change_password'] = true; // El empleado debe cambiarla en su próximo login
+            }
+
+            $employee->update($data);
+
+            // Registrar la acción en el log de auditoría
+            AuditLog::create([
+                'admin_id'         => Auth::id(),
+                'affected_user_id' => $employee->id,
+                'action'           => 'Actualización de perfil de empleado' . ($request->filled('new_password') ? ' (con restablecimiento de contraseña)' : ''),
+                'old_value'        => json_encode(['name' => $employee->getOriginal('name'), 'email' => $employee->getOriginal('email')]),
+                'new_value'        => json_encode(['name' => $request->name, 'email' => $request->email]),
+                'reason'           => 'Modificación desde panel de administración.',
+            ]);
+        });
+
+        return redirect()->route('admin.employees')
+            ->with('status', '¡Perfil y horarios de ' . $request->name . ' actualizados correctamente!');
+    }
+
+    /**
+     * Elimina (soft delete) a un empleado del sistema.
+     * - BLOQUEA la eliminación si el empleado tiene un turno activo (sin logoff).
+     * - Si no tiene turnos activos, realiza un soft delete (deleted_at se marca).
+     * - Conserva todo el historial de turnos y auditoría para pagos.
+     */
+    public function destroyEmployee($id)
+    {
+        $employee = User::findOrFail($id);
+
+        // Bloquear si el empleado tiene un turno activo (login sin logoff)
+        $hasActiveShift = $employee->shifts()
+                                   ->whereNull('logoff_time')
+                                   ->exists();
+
+        if ($hasActiveShift) {
+            return redirect()->back()
+                ->with('error', 'No se puede eliminar a ' . $employee->name . ' porque tiene un turno activo en curso. Espera a que finalice su jornada o cierra el turno manualmente.');
+        }
+
+        // Evitar que el admin se elimine a sí mismo
+        if ($employee->id === Auth::id()) {
+            return redirect()->back()
+                ->with('error', 'No puedes eliminar tu propia cuenta de administrador.');
+        }
+
+        DB::transaction(function () use ($employee) {
+            // Registrar la acción ANTES del soft delete para mantener la referencia al usuario
+            AuditLog::create([
+                'admin_id'         => Auth::id(),
+                'affected_user_id' => $employee->id,
+                'action'           => 'Eliminación (soft delete) de empleado del sistema',
+                'old_value'        => json_encode(['name' => $employee->name, 'email' => $employee->email, 'role' => $employee->role]),
+                'new_value'        => json_encode(['deleted_at' => now()->toDateTimeString()]),
+                'reason'           => 'Eliminación solicitada por administrador. Historial preservado.',
+            ]);
+
+            $employee->delete(); // Soft delete: marca deleted_at, no borra físicamente
+        });
+
+        return redirect()->route('admin.employees')
+            ->with('status', 'El empleado ' . $employee->name . ' ha sido eliminado. Su historial de horas y pagos se conserva.');
+    }
+
+    // =========================================================================
+    // PANEL DE MONITOREO DE TIEMPO
+    // =========================================================================
+
+    /**
+     * Dashboard principal con el monitoreo de tiempo en vivo de los empleados.
+     */
     public function dashboard(Request $request)
     {
         $startDate = $request->get('start_date', now()->toDateString());
-        $endDate = $request->get('end_date', now()->toDateString());
+        $endDate   = $request->get('end_date', now()->toDateString());
 
-        $employees = User::whereIn('role', ['employee', 'admin'])->get();
+        $employees  = User::whereIn('role', ['employee', 'admin'])->get();
         $reportData = [];
 
         foreach ($employees as $employee) {
@@ -38,10 +232,8 @@ class AdminController extends Controller
                 continue;
             }
 
-            $isTodayIncluded = ($startDate <= now()->toDateString() && $endDate >= now()->toDateString());
-            $currentStatus = 'Histórico';
-
-            $totalWorkSeconds = 0;
+            $currentStatus     = 'Histórico';
+            $totalWorkSeconds  = 0;
             $totalBreakSeconds = 0;
 
             foreach ($shifts as $shift) {
@@ -69,13 +261,13 @@ class AdminController extends Controller
 
                             if ($activeActivity->activity_type === 'ready') {
                                 $totalWorkSeconds += $liveSeconds;
-                                $currentStatus = 'Trabajando';
+                                $currentStatus    = 'Trabajando';
                             } elseif ($activeActivity->activity_type === 'break') {
                                 $totalBreakSeconds += $liveSeconds;
-                                $currentStatus = 'Descansando';
+                                $currentStatus     = 'Descansando';
                             } elseif ($activeActivity->activity_type === 'lunch') {
                                 $totalBreakSeconds += $liveSeconds;
-                                $currentStatus = 'En Lunch';
+                                $currentStatus     = 'En Lunch';
                             }
                         } else {
                             $currentStatus = 'Iniciado';
@@ -85,60 +277,37 @@ class AdminController extends Controller
             }
 
             $reportData[] = [
-                'id' => $employee->id,
-                'employee' => $employee->name,
-                'email' => $employee->email,
-                'status' => $currentStatus,
+                'id'           => $employee->id,
+                'employee'     => $employee->name,
+                'email'        => $employee->email,
+                'status'       => $currentStatus,
                 'total_worked' => gmdate('H:i:s', $totalWorkSeconds),
-                'total_break' => gmdate('H:i:s', $totalBreakSeconds),
+                'total_break'  => gmdate('H:i:s', $totalBreakSeconds),
             ];
         }
 
         return view('admin.dashboard', compact('reportData', 'startDate', 'endDate'));
     }
 
-    public function storeEmployee(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|min:8',
-            'role' => 'required|in:admin,employee',
-            'scheduled_in' => 'required',
-            'scheduled_out' => 'required',
-            'break_duration_minutes' => 'required|integer|min:0',
-            'lunch_duration_minutes' => 'required|integer|min:0',
-            'max_breaks_per_day' => 'required|integer|min:0',
-        ]);
+    // =========================================================================
+    // DETALLES Y EDICIÓN DE ACTIVIDADES
+    // =========================================================================
 
-        User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'role' => $request->role,
-            'scheduled_in' => $request->scheduled_in,
-            'scheduled_out' => $request->scheduled_out,
-            'break_duration_minutes' => $request->break_duration_minutes,
-            'lunch_duration_minutes' => $request->lunch_duration_minutes,
-            'max_breaks_per_day' => $request->max_breaks_per_day,
-            'password_changed_at' => null,
-        ]);
-
-        return redirect()->route('admin.dashboard')->with('status', '¡Usuario y horario creados con éxito!');
-    }
-
+    /**
+     * Muestra el historial detallado de turnos de un empleado.
+     */
     public function viewEmployeeDetails($id)
     {
         $employee = User::findOrFail($id);
 
-        $shifts = Shift::with(['activities' => function($query) {
+        $shifts = Shift::with(['activities' => function ($query) {
                            $query->orderBy('started_at', 'asc');
                        }])
                        ->where('user_id', $employee->id)
                        ->orderBy('date', 'desc')
                        ->get();
 
-        // Now we just loop through the data already loaded in memory to calculate live durations
+        // Calculamos duraciones en vivo para actividades abiertas
         foreach ($shifts as $shift) {
             foreach ($shift->activities as $act) {
                 if (!$act->ended_at) {
@@ -150,46 +319,48 @@ class AdminController extends Controller
         return view('admin.employee-details', compact('employee', 'shifts'));
     }
 
+    /**
+     * Actualiza manualmente una actividad de tiempo (con registro de auditoría).
+     */
     public function updateActivity(Request $request)
     {
         $request->validate([
             'activity_id' => 'required|exists:shift_activities,id',
-            'started_at' => 'required|date_format:Y-m-d H:i:s',
+            'started_at'  => 'required|date_format:Y-m-d H:i:s',
             // VULNERABILITY FIX: Ensure ended_at is strictly after started_at
-            'ended_at' => 'required|date_format:Y-m-d H:i:s|after:started_at',
-            'reason' => 'required|string|min:10',
+            'ended_at'    => 'required|date_format:Y-m-d H:i:s|after:started_at',
+            'reason'      => 'required|string|min:10',
         ], [
-            // Optional: Custom error message so the admin knows exactly what they did wrong
-            'ended_at.after' => 'La fecha y hora de fin debe ser posterior a la de inicio.'
+            'ended_at.after' => 'La fecha y hora de fin debe ser posterior a la de inicio.',
         ]);
 
         $activity = ShiftActivity::findOrFail($request->activity_id);
-        $shift = Shift::findOrFail($activity->shift_id);
+        $shift    = Shift::findOrFail($activity->shift_id);
 
         $oldValue = [
-            'started_at' => $activity->started_at,
-            'ended_at' => $activity->ended_at,
+            'started_at'       => $activity->started_at,
+            'ended_at'         => $activity->ended_at,
             'duration_seconds' => $activity->duration_seconds,
         ];
 
-        $start = Carbon::parse($request->started_at);
-        $end = Carbon::parse($request->ended_at);
+        $start              = Carbon::parse($request->started_at);
+        $end                = Carbon::parse($request->ended_at);
         $newDurationSeconds = $start->diffInSeconds($end);
 
         $activity->update([
-            'started_at' => $request->started_at,
-            'ended_at' => $request->ended_at,
+            'started_at'       => $request->started_at,
+            'ended_at'         => $request->ended_at,
             'duration_seconds' => $newDurationSeconds,
         ]);
 
         AuditLog::create([
-            'admin_id' => Auth::id(),
+            'admin_id'         => Auth::id(),
             'affected_user_id' => $shift->user_id,
-            'action' => 'Modificación manual de tiempo de ' . $activity->activity_type,
-            'old_value' => json_encode($oldValue),
-            'new_value' => json_encode([
-                'started_at' => $request->started_at,
-                'ended_at' => $request->ended_at,
+            'action'           => 'Modificación manual de tiempo de ' . $activity->activity_type,
+            'old_value'        => json_encode($oldValue),
+            'new_value'        => json_encode([
+                'started_at'       => $request->started_at,
+                'ended_at'         => $request->ended_at,
                 'duration_seconds' => $newDurationSeconds,
             ]),
             'reason' => $request->reason,
@@ -198,69 +369,44 @@ class AdminController extends Controller
         return back()->with('status', '¡Registro de tiempo modificado y auditado correctamente!');
     }
 
-    public function editEmployee($id)
-    {
-        $employee = User::findOrFail($id);
-        return view('admin.edit-employee', compact('employee'));
-    }
+    // =========================================================================
+    // REPORTES Y EXPORTACIÓN
+    // =========================================================================
 
-    public function updateEmployee(Request $request, $id)
-    {
-        $employee = User::findOrFail($id);
-
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,' . $employee->id,
-            'role' => 'required|in:admin,employee',
-            'scheduled_in' => 'required',
-            'scheduled_out' => 'required',
-            'break_duration_minutes' => 'required|integer|min:0',
-            'lunch_duration_minutes' => 'required|integer|min:0',
-            'max_breaks_per_day' => 'required|integer|min:0',
-        ]);
-
-        $employee->update([
-            'name' => $request->name,
-            'email' => $request->email,
-            'role' => $request->role,
-            'scheduled_in' => $request->scheduled_in,
-            'scheduled_out' => $request->scheduled_out,
-            'break_duration_minutes' => $request->break_duration_minutes,
-            'lunch_duration_minutes' => $request->lunch_duration_minutes,
-            'max_breaks_per_day' => $request->max_breaks_per_day,
-        ]);
-
-        return redirect()->route('admin.dashboard')->with('status', '¡Información y horarios actualizados correctamente!');
-    }
-
+    /**
+     * Muestra el formulario de exportación de reportes.
+     */
     public function showExportForm()
     {
         $employees = User::whereIn('role', ['employee', 'admin'])->orderBy('name')->get();
         return view('admin.export', compact('employees'));
     }
 
+    /**
+     * Genera y descarga el reporte CSV de nómina agrupado por empleado.
+     */
     public function downloadExcel(Request $request)
     {
         $request->validate([
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after_or_equal:start_date',
-            'employee_id' => 'required'
+            'start_date'  => 'required|date',
+            'end_date'    => 'required|date|after_or_equal:start_date',
+            'employee_id' => 'required',
         ]);
 
         $startDate = $request->start_date;
-        $endDate = $request->end_date;
+        $endDate   = $request->end_date;
 
         $fileName = "reporte_nomina_agrupado_" . $startDate . "_al_" . $endDate . ".csv";
 
-        $headers = array(
+        $headers = [
             "Content-type"        => "text/csv",
             "Content-Disposition" => "attachment; filename=$fileName",
             "Pragma"              => "no-cache",
             "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
-            "Expires"             => "0"
-        );
+            "Expires"             => "0",
+        ];
 
-        // 1. Consultamos Turnos (que sabemos que funciona) y usamos chunk para RAM
+        // Consultamos Turnos y usamos chunk para eficiencia de RAM
         $query = Shift::with(['user', 'activities'])
                       ->whereBetween('date', [$startDate, $endDate]);
 
@@ -270,7 +416,7 @@ class AdminController extends Controller
 
         $groupedData = [];
 
-        // 2. Procesamos en bloques de 200 para evitar agotar memoria
+        // Procesamos en bloques de 200 para evitar agotar memoria
         $query->chunk(200, function ($shifts) use (&$groupedData) {
             foreach ($shifts as $shift) {
                 // Seguridad: Si un turno quedó huérfano de usuario, lo saltamos
@@ -278,21 +424,19 @@ class AdminController extends Controller
 
                 $userId = $shift->user_id;
 
-                // Inicializamos la fila del empleado si no existe
                 if (!isset($groupedData[$userId])) {
                     $groupedData[$userId] = [
-                        'name' => $shift->user->name,
-                        'email' => $shift->user->email,
-                        'role' => $shift->user->role,
-                        'days_worked' => 0,
-                        'total_work_seconds' => 0,
+                        'name'                => $shift->user->name,
+                        'email'               => $shift->user->email,
+                        'role'                => $shift->user->role,
+                        'days_worked'         => 0,
+                        'total_work_seconds'  => 0,
                         'total_break_seconds' => 0,
                     ];
                 }
 
                 $groupedData[$userId]['days_worked'] += 1;
 
-                // Sumamos las actividades
                 foreach ($shift->activities as $act) {
                     if ($act->duration_seconds) {
                         if ($act->activity_type === 'ready') {
@@ -305,8 +449,7 @@ class AdminController extends Controller
             }
         });
 
-        // 3. Escribimos el CSV a partir de la data agrupada
-        $callback = function() use($groupedData) {
+        $callback = function () use ($groupedData) {
             $file = fopen('php://output', 'w');
 
             fputs($file, "\xEF\xBB\xBF");
@@ -320,26 +463,23 @@ class AdminController extends Controller
                 'Total Trabajo Efectivo (HH:MM:SS)',
                 'Total Trabajo Efectivo (Decimal)',
                 'Total Tiempo Breaks (HH:MM:SS)',
-                'Total Tiempo Breaks (Decimal)'
+                'Total Tiempo Breaks (Decimal)',
             ]);
 
             foreach ($groupedData as $data) {
-                // Cálculo de formato HH:MM:SS para Trabajo
                 $workSeconds = $data['total_work_seconds'];
-                $workHours = floor($workSeconds / 3600);
-                $workMins = floor(($workSeconds / 60) % 60);
-                $workSecs = $workSeconds % 60;
-                $relojWork = sprintf('%02d:%02d:%02d', $workHours, $workMins, $workSecs);
+                $workHours   = floor($workSeconds / 3600);
+                $workMins    = floor(($workSeconds / 60) % 60);
+                $workSecs    = $workSeconds % 60;
+                $relojWork   = sprintf('%02d:%02d:%02d', $workHours, $workMins, $workSecs);
 
-                // Cálculo de formato HH:MM:SS para Breaks
                 $breakSeconds = $data['total_break_seconds'];
-                $breakHours = floor($breakSeconds / 3600);
-                $breakMins = floor(($breakSeconds / 60) % 60);
-                $breakSecs = $breakSeconds % 60;
-                $relojBreak = sprintf('%02d:%02d:%02d', $breakHours, $breakMins, $breakSecs);
+                $breakHours   = floor($breakSeconds / 3600);
+                $breakMins    = floor(($breakSeconds / 60) % 60);
+                $breakSecs    = $breakSeconds % 60;
+                $relojBreak   = sprintf('%02d:%02d:%02d', $breakHours, $breakMins, $breakSecs);
 
-                // Cálculo Decimal
-                $decimalWork = round($workSeconds / 3600, 4);
+                $decimalWork  = round($workSeconds / 3600, 4);
                 $decimalBreak = round($breakSeconds / 3600, 4);
 
                 fputcsv($file, [
@@ -350,7 +490,7 @@ class AdminController extends Controller
                     $relojWork,
                     $decimalWork,
                     $relojBreak,
-                    $decimalBreak
+                    $decimalBreak,
                 ]);
             }
 

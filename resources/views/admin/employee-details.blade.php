@@ -1,84 +1,88 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="w-full max-w-5xl">
+<div style="width:100%;max-width:1024px;">
 
     {{-- Header --}}
-    <div class="flex justify-between items-start mb-8 pb-5 border-b border-subtle">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--color-subtle);">
         <div>
-            <a href="{{ route('admin.dashboard') }}" class="text-xs text-muted hover:text-brand transition-colors inline-flex items-center gap-1 mb-3">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+            <a href="{{ route('admin.dashboard') }}" class="back-link">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
                 Volver al panel
             </a>
-            <div class="flex items-center gap-4">
-                <h1 class="text-xl font-semibold text-gray-800">Historial de <span class="text-brand">{{ $employee->name }}</span></h1>
-
-                {{-- BOTÓN NUEVO PARA IR A EDITAR HORARIOS --}}
-                <a href="{{ route('admin.editEmployee', $employee->id) }}" class="text-xs bg-bgPage border border-subtle text-gray-600 hover:text-brand px-2.5 py-1 rounded-lg transition-colors font-medium">
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                <h1 style="font-size:20px;font-weight:600;color:#1f2937;">
+                    Historial de <span style="color:var(--color-brand);">{{ $employee->name }}</span>
+                </h1>
+                <a href="{{ route('admin.editEmployee', $employee->id) }}"
+                   class="btn btn-ghost btn-sm">
                     Modificar Horario / Perfil
                 </a>
             </div>
-            <p class="text-sm text-muted mt-0.5">{{ $employee->email }}</p>
+            <p style="font-size:14px;color:var(--color-muted);margin-top:2px;">{{ $employee->email }}</p>
         </div>
     </div>
 
-
-
     @if (session('status'))
-        <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm mb-6">
+        <div class="alert alert-success">
             {{ session('status') }}
         </div>
     @endif
 
     {{-- Jornadas --}}
-    <div class="space-y-5">
+    <div style="display:flex;flex-direction:column;gap:20px;">
         @forelse($shifts as $shift)
-            <div class="bg-bgCard border border-subtle rounded-2xl shadow-sm p-6">
-                <div class="flex justify-between items-center mb-4 pb-3 border-b border-subtle">
-                    <h3 class="text-sm font-semibold text-gray-700">
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--color-subtle);">
+                    <h3 style="font-size:14px;font-weight:600;color:#374151;">
                         Jornada: {{ Carbon\Carbon::parse($shift->date)->format('d/m/Y') }}
                     </h3>
-                    <span class="text-xs text-muted font-mono">
+                    <span style="font-size:12px;color:var(--color-muted);font-family:monospace;">
                         Login: {{ $shift->login_time }} &nbsp;|&nbsp; Logoff: {{ $shift->logoff_time ?? 'Activo' }}
                     </span>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs">
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;text-align:left;font-size:12px;">
                         <thead>
-                            <tr class="text-muted uppercase tracking-wide border-b border-subtle">
-                                <th class="pb-2 pr-4 font-medium">Actividad</th>
-                                <th class="pb-2 pr-4 font-medium">Inicio</th>
-                                <th class="pb-2 pr-4 font-medium">Fin</th>
-                                <th class="pb-2 pr-4 font-medium">Duración</th>
-                                <th class="pb-2 text-right font-medium">Acción</th>
+                            <tr style="color:var(--color-muted);text-transform:uppercase;letter-spacing:0.03em;border-bottom:1px solid var(--color-subtle);">
+                                <th style="padding-bottom:8px;padding-right:16px;font-weight:600;">Actividad</th>
+                                <th style="padding-bottom:8px;padding-right:16px;font-weight:600;">Inicio</th>
+                                <th style="padding-bottom:8px;padding-right:16px;font-weight:600;">Fin</th>
+                                <th style="padding-bottom:8px;padding-right:16px;font-weight:600;">Duración</th>
+                                <th style="padding-bottom:8px;text-align:right;font-weight:600;">Acción</th>
                             </tr>
                         </thead>
-                        <tbody id="activitiesTable" class="text-gray-700">
+                        <tbody id="activitiesTable" style="color:#374151;">
                             @foreach($shift->activities as $act)
-                                <tr class="border-b border-subtle/50 hover:bg-bgPage transition-colors">
-                                    <td class="py-3 pr-4">
-                                        <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium
-                                            {{ $act->activity_type == 'ready' ? 'bg-brand/10 text-brand' : 'bg-warnBg text-warn' }}">
+                                <tr style="border-bottom:1px solid rgba(232,230,225,0.5);transition:background 0.15s;"
+                                    onmouseover="this.style.background='var(--color-bg-page)'"
+                                    onmouseout="this.style.background='transparent'">
+                                    <td style="padding:12px 16px 12px 0;">
+                                        <span style="display:inline-block;padding:2px 10px;border-radius:9999px;font-size:12px;font-weight:500;
+                                            background:{{ $act->activity_type == 'ready' ? 'rgba(74,124,89,0.1)' : 'var(--color-warn-bg)' }};
+                                            color:{{ $act->activity_type == 'ready' ? 'var(--color-brand)' : 'var(--color-warn)' }};">
                                             {{ ucfirst(str_replace('_', ' ', $act->activity_type)) }}
                                         </span>
                                     </td>
-                                    {{-- Aquí agregamos las clases para el JS --}}
-                                    <td class="py-3 pr-4 font-mono text-gray-600 started-at-data" data-time="{{ $act->started_at }}">
+                                    <td class="started-at-data" data-time="{{ $act->started_at }}"
+                                        style="padding:12px 16px 12px 0;font-family:monospace;color:#4b5563;">
                                         {{ $act->started_at }}
                                     </td>
-                                    <td class="py-3 pr-4 font-mono text-gray-600">{{ $act->ended_at ?? 'Corriendo...' }}</td>
-                                    <td class="py-3 pr-4 font-mono text-gray-700 duration-display">
+                                    <td style="padding:12px 16px 12px 0;font-family:monospace;color:#4b5563;">
+                                        {{ $act->ended_at ?? 'Corriendo...' }}
+                                    </td>
+                                    <td class="duration-display" style="padding:12px 16px 12px 0;font-family:monospace;color:#374151;">
                                         {{ $act->duration_seconds ? gmdate('H:i:s', $act->duration_seconds) : '00:00:00' }}
                                     </td>
-                                    <td class="py-3 text-right">
+                                    <td style="padding:12px 0;text-align:right;">
                                         @if($act->ended_at)
                                             <button onclick="openEditModal('{{ $act->id }}', '{{ $act->started_at }}', '{{ $act->ended_at }}', '{{ $act->activity_type }}')"
-                                                class="text-xs text-gray-600 bg-bgPage border border-subtle hover:border-brand/40 hover:text-brand px-3 py-1 rounded-lg transition-colors">
+                                                class="btn btn-ghost btn-sm">
                                                 Editar
                                             </button>
                                         @else
-                                            <span class="text-muted italic text-xs">En progreso</span>
+                                            <span style="color:var(--color-muted);font-style:italic;font-size:12px;">En progreso</span>
                                         @endif
                                     </td>
                                 </tr>
@@ -88,7 +92,7 @@
                 </div>
             </div>
         @empty
-            <div class="bg-bgCard rounded-2xl border border-subtle p-10 text-center text-muted text-sm">
+            <div class="card" style="text-align:center;padding:40px;color:var(--color-muted);font-size:14px;">
                 Este empleado no tiene registros de tiempo todavía.
             </div>
         @endforelse
@@ -96,34 +100,38 @@
 </div>
 
 {{-- Modal de edición --}}
-<div id="editModal" class="hidden fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-    <div class="bg-bgCard border border-subtle rounded-2xl shadow-xl w-full max-w-md p-6">
-        <h3 class="text-sm font-semibold text-gray-800 mb-5">Modificar registro: <span id="modalActivityType" class="text-brand capitalize"></span></h3>
-        <form method="POST" action="{{ route('admin.updateActivity') }}" class="space-y-4">
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(17,24,39,0.4);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:16px;z-index:50;">
+    <div class="card" style="width:100%;max-width:448px;padding:24px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
+        <h3 style="font-size:14px;font-weight:600;color:#1f2937;margin-bottom:20px;">
+            Modificar registro: <span id="modalActivityType" style="color:var(--color-brand);text-transform:capitalize;"></span>
+        </h3>
+        <form method="POST" action="{{ route('admin.updateActivity') }}" style="display:flex;flex-direction:column;gap:16px;">
             @csrf
             <input type="hidden" name="activity_id" id="modalActivityId">
             <div>
-                <label class="block text-xs text-muted mb-1.5">Inicio <span class="text-gray-400">(YYYY-MM-DD HH:MM:SS)</span></label>
-                <input type="text" name="started_at" id="modalStartedAt" required class="w-full bg-bgPage border border-subtle text-gray-800 rounded-lg px-3 py-2 text-sm font-mono focus:border-brand outline-none transition-all">
+                <label class="label">Inicio <span style="color:var(--color-muted);font-weight:400;">(YYYY-MM-DD HH:MM:SS)</span></label>
+                <input type="text" name="started_at" id="modalStartedAt" required class="input input-mono">
             </div>
             <div>
-                <label class="block text-xs text-muted mb-1.5">Fin <span class="text-gray-400">(YYYY-MM-DD HH:MM:SS)</span></label>
-                <input type="text" name="ended_at" id="modalEndedAt" required class="w-full bg-bgPage border border-subtle text-gray-800 rounded-lg px-3 py-2 text-sm font-mono focus:border-brand outline-none transition-all">
+                <label class="label">Fin <span style="color:var(--color-muted);font-weight:400;">(YYYY-MM-DD HH:MM:SS)</span></label>
+                <input type="text" name="ended_at" id="modalEndedAt" required class="input input-mono">
             </div>
             <div>
-                <label class="block text-xs text-muted mb-1.5">Razón del cambio</label>
-                <textarea name="reason" required minlength="10" class="w-full bg-bgPage border border-subtle text-gray-800 rounded-lg px-3 py-2 text-sm focus:border-brand outline-none h-20 resize-none"></textarea>
+                <label class="label">Razón del cambio</label>
+                <textarea name="reason" required minlength="10"
+                    style="width:100%;background:var(--color-bg-page);border:1px solid var(--color-subtle);border-radius:8px;padding:8px 12px;font-size:14px;color:#1f2937;outline:none;height:80px;resize:none;font-family:inherit;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='var(--color-brand)'"
+                    onblur="this.style.borderColor='var(--color-subtle)'"></textarea>
             </div>
-            <div class="flex gap-3 pt-1">
-                <button type="button" onclick="closeEditModal()" class="flex-1 bg-bgPage border border-subtle text-gray-600 rounded-lg py-2 text-sm font-medium hover:text-gray-800">Cancelar</button>
-                <button type="submit" class="flex-1 bg-brand hover:bg-brandHov text-white rounded-lg py-2 text-sm font-medium transition-colors">Guardar cambios</button>
+            <div style="display:flex;gap:12px;padding-top:4px;">
+                <button type="button" onclick="closeEditModal()" class="btn btn-ghost" style="flex:1;">Cancelar</button>
+                <button type="submit" class="btn btn-primary" style="flex:1;">Guardar cambios</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-
     // La hora real del servidor (formato ISO)
     const serverTime = new Date("{{ now()->toIso8601String() }}");
     const clientTimeOffset = new Date() - serverTime;
@@ -133,24 +141,23 @@
         document.getElementById('modalStartedAt').value = start;
         document.getElementById('modalEndedAt').value = end;
         document.getElementById('modalActivityType').innerText = type.replace('_', ' ');
-        document.getElementById('editModal').classList.remove('hidden');
+        document.getElementById('editModal').style.display = 'flex';
     }
     function closeEditModal() {
-        document.getElementById('editModal').classList.add('hidden');
+        document.getElementById('editModal').style.display = 'none';
     }
 
     // Cronómetro en vivo solo para filas sin fecha de fin
     setInterval(function() {
-        if (document.getElementById('editModal').classList.contains('hidden')) {
+        if (document.getElementById('editModal').style.display === 'none') {
             const rows = document.querySelectorAll('#activitiesTable tr');
             rows.forEach(row => {
                 const startCell = row.querySelector('.started-at-data');
                 const endCell = row.querySelector('.duration-display');
 
-                // Solo actualizamos si la celda de inicio existe y no hay fecha de fin
                 if (startCell && row.cells[2].innerText.trim() === 'Corriendo...') {
-
-                    const startTime = new Date(startCell.dataset.time.replace(' ', 'T'));                    const now = new Date(new Date().getTime() - clientTimeOffset); // Ajustamos por la diferencia
+                    const startTime = new Date(startCell.dataset.time.replace(' ', 'T'));
+                    const now = new Date(new Date().getTime() - clientTimeOffset);
                     const diff = Math.floor((now - startTime) / 1000);
 
                     const h = Math.floor(diff / 3600);

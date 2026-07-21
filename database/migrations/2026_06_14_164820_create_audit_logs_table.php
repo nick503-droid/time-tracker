@@ -13,8 +13,10 @@ return new class extends Migration
     {
         Schema::create('audit_logs', function (Blueprint $table) {
             $table->id();
-            // Quién hizo el cambio
-            $table->foreignId('admin_id')->constrained('users')->onDelete('cascade');
+
+            // EL CAMBIO ESTÁ AQUÍ: Agregamos ->nullable() para que el sistema automático pueda operar
+            $table->foreignId('admin_id')->nullable()->constrained('users')->onDelete('cascade');
+
             // A qué empleado se lo hizo
             $table->foreignId('affected_user_id')->constrained('users')->onDelete('cascade');
 

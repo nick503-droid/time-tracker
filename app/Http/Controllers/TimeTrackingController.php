@@ -47,69 +47,71 @@ class TimeTrackingController extends Controller
     }
 
     public function changeStatus(Request $request)
-{
-    $request->validate([
-        'status' => 'required|in:ready,break,lunch,other'
-    ]);
-
-    $user = Auth::user();
-    $now = now();
-
-    // REGLA NOCTURNA: Buscamos el turno ABIERTO
-    $shift = Shift::where('user_id', $user->id)
-                  ->whereNull('logoff_time')
-                  ->latest()
-                  ->first();
-
-    if (!$shift) {
-        return back()->withErrors('No tienes un turno activo en este momento.');
-    }
-
-    $currentActivity = ShiftActivity::where('shift_id', $shift->id)
-                                    ->whereNull('ended_at')
-                                    ->first();
-
-    // PREVENCIÓN DE DOBLE CLIC: Si ya está en este estado, no hacemos nada
-    if ($currentActivity && $currentActivity->activity_type === $request->status) {
-        return back()->with('status', 'Ya te encuentras en el estado: ' . $request->status);
-    }
-
-    // --- VALIDACIONES DE BACKEND PARA LÍMITES DE TIEMPOS ---
-    if ($request->status === 'break') {
-        $breaksCount = ShiftActivity::where('shift_id', $shift->id)
-                                    ->where('activity_type', 'break')
-                                    ->count();
-        if ($breaksCount >= $user->max_breaks_per_day) {
-            return back()->withErrors('Acceso Denegado: Has alcanzado el límite máximo de breaks permitidos por hoy.');
-        }
-    }
-
-    if ($request->status === 'lunch') {
-        $hasLunch = ShiftActivity::where('shift_id', $shift->id)
-                                   ->where('activity_type', 'lunch')
-                                   ->exists();
-        if ($hasLunch) {
-            return back()->withErrors('Acceso Denegado: Ya registraste tu tiempo de almuerzo obligatorio para este turno.');
-        }
-    }
-
-    // TRANSACCIÓN: Asegura que cerrar el log anterior y abrir el nuevo suceda al mismo tiempo
-    DB::transaction(function () use ($shift, $request, $now, $currentActivity) {
-        if ($currentActivity) {
-            $currentActivity->ended_at = $now;
-            $currentActivity->duration_seconds = Carbon::parse($currentActivity->started_at)->diffInSeconds($now);
-            $currentActivity->save();
-        }
-
-        ShiftActivity::create([
-            'shift_id' => $shift->id,
-            'activity_type' => $request->status,
-            'started_at' => $now,
+    {
+        $request->validate([
+            'status' => 'required|in:ready,break,lunch,other'
         ]);
-    });
 
-    return back()->with('status', 'Estado actualizado a: ' . $request->status);
-}
+        $user = Auth::user();
+
+        // TODA LA LÓGICA ENTRA A LA TRANSACCIÓN
+        return DB::transaction(function () use ($request, $user) {
+            $now = now();
+
+            $shift = Shift::where('user_id', $user->id)
+                          ->whereNull('logoff_time')
+                          ->latest()
+                          ->lockForUpdate() 
+                          ->first();
+
+            if (!$shift) {
+                return back()->withErrors('No tienes un turno activo en este momento.');
+            }
+
+            $currentActivity = ShiftActivity::where('shift_id', $shift->id)
+                                            ->whereNull('ended_at')
+                                            ->first();
+
+            // Prevención de mismo estado
+            if ($currentActivity && $currentActivity->activity_type === $request->status) {
+                return back()->with('status', 'Ya te encuentras en el estado: ' . $request->status);
+            }
+
+            // Validaciones de negocio
+            if ($request->status === 'break') {
+                $breaksCount = ShiftActivity::where('shift_id', $shift->id)
+                                            ->where('activity_type', 'break')
+                                            ->count();
+                if ($breaksCount >= $user->max_breaks_per_day) {
+                    return back()->withErrors('Acceso Denegado: Límite de breaks alcanzado.');
+                }
+            }
+
+            if ($request->status === 'lunch') {
+                $hasLunch = ShiftActivity::where('shift_id', $shift->id)
+                                           ->where('activity_type', 'lunch')
+                                           ->exists();
+                if ($hasLunch) {
+                    return back()->withErrors('Acceso Denegado: Ya tomaste tu almuerzo.');
+                }
+            }
+
+            // Ejecución
+            if ($currentActivity) {
+                $currentActivity->ended_at = $now;
+                $currentActivity->duration_seconds = Carbon::parse($currentActivity->started_at)->diffInSeconds($now);
+                $currentActivity->save();
+            }
+
+            ShiftActivity::create([
+                'shift_id' => $shift->id,
+                'activity_type' => $request->status,
+                'started_at' => $now,
+            ]);
+
+            return back()->with('status', 'Estado actualizado a: ' . $request->status);
+        });
+    }
 
     public function clockOut()
     {

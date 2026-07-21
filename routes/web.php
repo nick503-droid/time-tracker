@@ -50,12 +50,14 @@ Route::middleware(['auth'])->group(function () {
         // ---------------------------------------------------------
         Route::middleware(['role:admin'])->group(function () {
 
-            // Vista principal del panel de administración
+            // Vista principal del panel de administración (monitoreo de tiempo)
             Route::get('/admin', [AdminController::class, 'dashboard'])->name('admin.dashboard');
 
-            // Gestión y Mantenimiento de Empleados con Horarios Personalizados
+            // Gestión de Empleados (CRUD completo)
+            Route::get('/admin/employees', [AdminController::class, 'listEmployees'])->name('admin.employees');
             Route::get('/admin/employee/create', [AdminController::class, 'createEmployee'])->name('admin.createEmployee');
             Route::post('/admin/employee/store', [AdminController::class, 'storeEmployee'])->name('admin.storeEmployee');
+            Route::delete('/admin/employee/{id}', [AdminController::class, 'destroyEmployee'])->name('admin.destroyEmployee');
 
             // Detalles del Empleado, Cronómetro en Vivo y Edición Manual
             Route::get('/admin/employee/{id}', [AdminController::class, 'viewEmployeeDetails'])->name('admin.employeeDetails');
